@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+/* Ocean theme. Every colour in the app comes from these tokens. */
+@theme {
+  --color-canvas: #f6f9fc;
+  --color-surface: #ffffff;
+  --color-line: #e1e8f0;
+  --color-ink: #0f2236;
+  --color-muted: #5b6b7d;
+
+  --color-hero: #0f2236;
+  --color-hero-ink: #ffffff;
+  --color-hero-muted: #a9bcd0;
+
+  --color-accent: #14b8a6;
+  --color-accent-hover: #2dd4bf;
+  --color-accent-ink: #042f2e;
+  /* accent for text and icons on light backgrounds (meets WCAG AA) */
+  --color-accent-strong: #0f766e;
+  /* light accent backgrounds, for soft buttons */
+  --color-accent-soft: #e6f7f4;
+  --color-accent-soft-hover: #d6f1ec;
+  /* light grey for muted buttons, visible on both the page background and white cards */
+  --color-subtle: #e4eaf1;
+  --color-subtle-hover: #d6dee8;
+
+  --color-up: #10b981;
+  --color-up-soft: #d1fae5;
+  --color-up-ink: #065f46;
+  --color-partial: #f59e0b;
+  --color-partial-soft: #fef3c7;
+  --color-partial-ink: #92400e;
+  --color-down: #ef4444;
+  --color-down-soft: #fee2e2;
+  --color-down-ink: #991b1b;
+  /* red for filled buttons with white text (meets WCAG AA) */
+  --color-down-strong: #b91c1c;
+  --color-nodata: #dce4ec;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+}
+
+@layer base {
+  body {
+    @apply bg-canvas text-ink antialiased;
+  }
+
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-accent;
+  }
+}

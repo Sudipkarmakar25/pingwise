@@ -1,0 +1,16 @@
+# editors and OS
+.idea/
+.vscode/
+.DS_Store
+
+# secrets and local settings: never commit these
+.env
+.env.*
+!.env.example
+
+# local notes and drafts
+docs/
+
+# build output
+/backend/api
+/backend/worker
