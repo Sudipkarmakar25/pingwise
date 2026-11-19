@@ -217,6 +217,21 @@ bun run dev                  # http://localhost:3100
 
 Open http://localhost:3100, create an account (you become the owner of a new organisation), and add your first service. It is checked within a minute.
 
+### Using Pingwise
+
+1. **Create an account.** Signing up creates your organisation and makes you its owner.
+2. **Add your team.** On **Team**, add people as owner, editor or viewer with a temporary password. They choose their own password on first sign-in.
+3. **Add a service.** On **Services → Add service**, enter:
+   - the URL and method
+   - optionally headers, a request body or an auth token
+   - the expected status code, interval, timeout and failure threshold
+
+   The first check runs within a minute.
+4. **Watch status.** The dashboard lists every service with its current status, last response time and 90-day uptime bars. Click **Refresh** for the latest results.
+5. **Investigate.** Open a service to see uptime and response time by minute, 5 minutes or day, plus every individual check with its failure reason.
+6. **Choose who gets alerts.** Click **Notify** on a service to get emails for it. The **Alert emails** panel on the service page shows who is notified, and lets you change it for people in a lower role.
+7. **Pause or edit.** On a service's edit page, change its settings, pause or resume checks, or delete it.
+
 ### Sending alert emails with Gmail
 1. Turn on 2-Step Verification on the Gmail account.
 2. Create an app password at https://myaccount.google.com/apppasswords.
