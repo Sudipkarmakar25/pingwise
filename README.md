@@ -15,7 +15,7 @@ Free and self-hosted. One Postgres database, one Go API, one Go worker, one Next
 - [Why the design holds up](#why-the-design-holds-up)
 - [Using Pingwise in larger organisations](#using-pingwise-in-larger-organisations)
 - [How far it scales](#how-far-it-scales)
-- [Getting started](#getting-started)
+- [Getting started](#getting-started): [on your computer](#run-it-on-your-computer) or [self-host on a server](#self-host-on-a-server)
 - [Configuration](#configuration)
 - [Project structure](#project-structure)
 - [Roadmap](#roadmap)
@@ -174,26 +174,28 @@ What to raise first, in order:
 
 ## Getting started
 
-### Prerequisites
-- Go 1.26+
-- PostgreSQL 15+
-- [Bun](https://bun.sh) (or Node.js 20+)
-- An SMTP account for alert emails (optional; alerts are off without it)
+There are two ways to run Pingwise:
+- **[On your computer](#run-it-on-your-computer)**, to try it out.
+- **[On a server](#self-host-on-a-server)**, for real use: always on, HTTPS and your own domain.
 
-### 1. Database
+### Run it on your computer
+
+**You need:** Go 1.26+, PostgreSQL 14+, [Bun](https://bun.sh) and Node.js 20+.
+
 ```bash
+git clone https://github.com/Sudipkarmakar25/pingwise.git
+cd pingwise
 createdb pingwise
 ```
 
-### 2. Backend
+**Backend:**
 ```bash
 cd backend
 cp .env.example .env
 ```
 Edit `.env`:
 - Set `PRIMARY_DB_DSN` to your database.
-- Generate an encryption key with `openssl rand -base64 32` and put it in `ENCRYPTION_KEY`.
-- Optionally fill in the SMTP settings.
+- Put the output of `openssl rand -base64 32` in `ENCRYPTION_KEY`.
 
 Then create the tables:
 ```bash
@@ -201,13 +203,13 @@ go run ./migrate up          # Pingwise tables
 go run ./cmd/river-migrate   # job queue tables
 ```
 
-Run the API and the worker in separate terminals:
+Run the API and the worker in two terminals:
 ```bash
 go run ./cmd/api             # http://localhost:8090
 go run ./cmd/worker
 ```
 
-### 3. Web
+**Web**, in a third terminal:
 ```bash
 cd web
 cp .env.example .env.local
@@ -215,7 +217,228 @@ bun install
 bun run dev                  # http://localhost:3100
 ```
 
-Open http://localhost:3100, create an account (you become the owner of a new organisation), and add your first service. It is checked within a minute.
+Open http://localhost:3100 and create an account.
+
+---
+
+### Self-host on a server
+
+This guide sets Pingwise up on one **Ubuntu 24.04** server with HTTPS:
+- Postgres, the API, the worker and the web app all run on the same machine.
+- [Caddy](https://caddyserver.com) serves your domain and gets the HTTPS certificate automatically.
+- systemd keeps everything running and restarts it after a crash or reboot.
+
+Only ports 80 and 443 are open to the internet. The API and the database are reachable only from the server itself.
+
+**You need:**
+- **A server** with 2 GB RAM. 1 GB works if you add swap (step 1).
+- **A domain or subdomain**, e.g. `status.example.com`, with a DNS **A record** pointing at the server's IP address.
+- **SSH access** with `sudo`.
+
+In the commands below, replace `status.example.com` with your domain and `CHANGE_ME_DB_PASSWORD` with a strong password.
+
+#### 1. Install the software
+```bash
+sudo apt update
+sudo apt install -y git unzip postgresql caddy
+
+# Node.js 22, used to run the web app
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# Go 1.26. Use linux-arm64 instead of linux-amd64 on ARM servers (e.g. Oracle Ampere)
+curl -fsSL https://go.dev/dl/go1.26.4.linux-amd64.tar.gz | sudo tar -C /usr/local -xz
+echo 'export PATH=$PATH:/usr/local/go/bin' | sudo tee /etc/profile.d/go.sh
+```
+
+On a 1 GB server, add swap so the web build doesn't run out of memory:
+```bash
+sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
+
+#### 2. Create the database
+```bash
+sudo -u postgres psql -c "CREATE USER pingwise WITH PASSWORD 'CHANGE_ME_DB_PASSWORD';"
+sudo -u postgres psql -c "CREATE DATABASE pingwise OWNER pingwise;"
+```
+
+#### 3. Create a user for Pingwise and download the code
+Pingwise runs as its own user, not as root.
+```bash
+sudo useradd --create-home --shell /bin/bash pingwise
+sudo -iu pingwise                                   # you are now the pingwise user
+git clone https://github.com/Sudipkarmakar25/pingwise.git
+curl -fsSL https://bun.sh/install | bash            # installs Bun for this user
+```
+
+#### 4. Configure the backend
+Still as the `pingwise` user:
+```bash
+cd ~/pingwise/backend
+cp .env.example .env
+chmod 600 .env
+openssl rand -base64 32                             # copy this output
+nano .env
+```
+
+Set these values in `.env` and leave the rest as they are:
+```ini
+ENVIRONMENT=production
+SERVER_ADDRESS=127.0.0.1:8090
+PRIMARY_DB_DSN=postgres://pingwise:CHANGE_ME_DB_PASSWORD@localhost:5432/pingwise?sslmode=disable
+ENCRYPTION_KEY=<the openssl output>
+APP_URL=https://status.example.com
+```
+
+For alert emails, also fill in the `SMTP_…` and `ALERT_FROM_EMAIL` lines (see [Sending alert emails with Gmail](#sending-alert-emails-with-gmail)). Without them, Pingwise works but sends no emails.
+
+> **Keep a copy of `ENCRYPTION_KEY` somewhere safe.** Without it, saved service tokens can't be decrypted.
+
+#### 5. Build the backend and create the tables
+```bash
+cd ~/pingwise/backend
+go build -o bin/api ./cmd/api
+go build -o bin/worker ./cmd/worker
+go build -o bin/migrate ./migrate
+go build -o bin/river-migrate ./cmd/river-migrate
+./bin/migrate up
+./bin/river-migrate
+```
+
+#### 6. Build the web app
+```bash
+cd ~/pingwise/web
+echo 'API_BASE_URL=http://127.0.0.1:8090' > .env.local
+~/.bun/bin/bun install
+~/.bun/bin/bun run build
+exit                                                # back to your own user
+```
+
+#### 7. Run everything as services
+Create three systemd services, so Pingwise starts on boot and restarts if it stops:
+```bash
+sudo tee /etc/systemd/system/pingwise-api.service > /dev/null <<'EOF'
+[Unit]
+Description=Pingwise API
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+User=pingwise
+WorkingDirectory=/home/pingwise/pingwise/backend
+EnvironmentFile=/home/pingwise/pingwise/backend/.env
+ExecStart=/home/pingwise/pingwise/backend/bin/api
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo tee /etc/systemd/system/pingwise-worker.service > /dev/null <<'EOF'
+[Unit]
+Description=Pingwise worker
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+User=pingwise
+WorkingDirectory=/home/pingwise/pingwise/backend
+EnvironmentFile=/home/pingwise/pingwise/backend/.env
+ExecStart=/home/pingwise/pingwise/backend/bin/worker
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo tee /etc/systemd/system/pingwise-web.service > /dev/null <<'EOF'
+[Unit]
+Description=Pingwise web
+After=network-online.target pingwise-api.service
+Wants=network-online.target
+
+[Service]
+User=pingwise
+WorkingDirectory=/home/pingwise/pingwise/web
+Environment=NODE_ENV=production
+ExecStart=/home/pingwise/.bun/bin/bun run start
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now pingwise-api pingwise-worker pingwise-web
+systemctl status pingwise-api pingwise-worker pingwise-web --no-pager
+```
+All three should show **active (running)**.
+
+#### 8. Turn on HTTPS
+Point Caddy at the web app. It gets and renews the certificate on its own.
+```bash
+sudo tee /etc/caddy/Caddyfile > /dev/null <<'EOF'
+status.example.com {
+    reverse_proxy 127.0.0.1:3100
+}
+EOF
+sudo systemctl reload caddy
+```
+
+#### 9. Open only the ports you need
+```bash
+sudo ufw allow OpenSSH
+sudo ufw allow 80
+sudo ufw allow 443
+sudo ufw enable
+```
+On a cloud server (Oracle, AWS, GCP, Azure), also allow ports 80 and 443 in the provider's firewall (security list or security group).
+
+#### 10. Sign up
+Open `https://status.example.com` and **create an account**. You become the owner of the first organisation. Then add your team and your services.
+
+> **Who can sign up:** anyone who can open your site can create their own organisation. On a public address, put the site behind your VPN or company network if only your team should use it. Pingwise doesn't yet block checks to private network addresses (see the roadmap), which matters when strangers can add services.
+
+#### Logs
+```bash
+journalctl -u pingwise-worker -f       # checks and emails
+journalctl -u pingwise-api -f          # API requests and errors
+journalctl -u pingwise-web -f          # web app
+```
+
+#### Updating to a new version
+```bash
+sudo -iu pingwise
+cd ~/pingwise && git pull
+
+cd backend
+go build -o bin/api ./cmd/api && go build -o bin/worker ./cmd/worker
+go build -o bin/migrate ./migrate && go build -o bin/river-migrate ./cmd/river-migrate
+./bin/migrate up && ./bin/river-migrate
+
+cd ../web
+~/.bun/bin/bun install && ~/.bun/bin/bun run build
+exit
+
+sudo systemctl restart pingwise-api pingwise-worker pingwise-web
+```
+
+#### Backups
+Back up the database daily and keep copies off the server:
+```bash
+sudo -u postgres pg_dump -Fc pingwise > pingwise-$(date +%F).dump
+```
+To restore into an empty `pingwise` database:
+```bash
+sudo -u postgres pg_restore -d pingwise pingwise-YYYY-MM-DD.dump
+```
+Also keep a copy of `backend/.env`, or at least `ENCRYPTION_KEY`, in a password manager.
+
+---
 
 ### Using Pingwise
 
@@ -233,6 +456,8 @@ Open http://localhost:3100, create an account (you become the owner of a new org
 7. **Pause or edit.** On a service's edit page, change its settings, pause or resume checks, or delete it.
 
 ### Sending alert emails with Gmail
+Any SMTP server works. These steps are for Gmail.
+
 1. Turn on 2-Step Verification on the Gmail account.
 2. Create an app password at https://myaccount.google.com/apppasswords.
 3. In `backend/.env`, set:
@@ -241,7 +466,7 @@ Open http://localhost:3100, create an account (you become the owner of a new org
    - `SMTP_USERNAME` to the Gmail address
    - `SMTP_PASSWORD` to the app password, without spaces
    - `ALERT_FROM_EMAIL="Pingwise <the same address>"`
-4. Restart the worker.
+4. Restart the worker: `sudo systemctl restart pingwise-worker` on a server, or stop and start `go run ./cmd/worker` locally.
 
 ---
 
